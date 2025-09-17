@@ -21,7 +21,7 @@
           <ol>
             <li>ApplicationCore: là tầng xử lý nghiệp vụ chính của project</li>
             <li>
-              Infractructure: là tầng cung cấp các dịch vụ cho tầng
+              Infrastructure: là tầng cung cấp các dịch vụ cho tầng
               ApplicationCore
             </li>
             <li>PublicAPI: là tầng thực hiện các API cho client</li>
@@ -29,8 +29,206 @@
           <img src="./img/net-architecture.png" alt="Cấu trúc project" />
         </div>
       </section>
+      <section>
+        <h2>2. Bắt đầu với Infrastructure Layer</h2>
+        <div class="content">
+          <p style="font-weight: bold">Bước 1: Add các package cần thiết:</p>
+          <code>
+            <pre>
+            dotnet add package Microsoft.EntityFrameworkCore --version lastest
+            dotnet add package MySQL.Data
+            dotnet add package Pomelo.EntityFrameworkCore.MySQL
+            // thêm package cho PublicAPI 
+            dotnet add package Pomelo.EntityFrameworkCore.Design
+         </pre
+            >
+          </code>
+          <p style="font-weight: bold">Bước 2: Config AppDbContext:</p>
+          <code>
+            <pre>
+           namespace Infrastructure.Data
+            {
+                public class AppDbContext : DbContext
+                {
+                    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options)
+                    {
+
+                    }
+                    protected override void OnModelCreating(ModelBuilder modelBuilder)
+                    {
+                        base.OnModelCreating(modelBuilder);
+                    }
+                    public DbSet<User> Users { get; set; }
+                    public DbSet<UserRole> UserRoles { get; set; }
+                }
+            }
+         </pre
+            >
+          </code>
+            <p style="font-weight: bold; font-style: italic; color: red;">Lưu ý: ở ApplicationCore Layer trong folder Entities phải khai báo các Entity trước!</p>
+            <p style="font-weight: bold">Bước 3: Config ConnectionStrings trong appsettings.json:</p>
+          <code><pre>
+              "ConnectionStrings": {
+            "DefaultConnection": "Server=YOUR_IP;Port=3306;Database=DATABASE_NAME;User Id=root;Password=YOUR_PASSWORD;TreatTinyAsBoolean=true"
+  }
+          </pre></code>
+
+          <p style="font-weight: bold">Bước 4: Khai báo AppDbContext trong Program.cs:</p>
+          <code>
+            <pre>
+              //Declare connectionString
+              var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+              //Connect connectionString to Your Database
+              builder.Services.AddDbContext<AppDbContext>(options => options.UseMySql(connectionString, ServerVersion.AutoDetect(connectionString)));</pre>
+          </code>
+         <p style="font-weight: bold">Bước 5: Sử dụng Migrations để tạo Connect/Create với Database Local</p>
+          <code>
+            <pre>
+                 dotnet ef migrations add [MigrationName]
+                 dotnet ef database update
+          </code>
+        </div>
+      </section>
+      <section>
+        <h2>3. Config Cors cho Project</h2>
+        <div class="content"> 
+        <p style="font-weight: bold">Bước 1: Khai báo các đường dẫn cho phép truy cập trong appsettings.json </p>
+          <code>
+            <pre>
+                "Cors": {
+                  "AllowedOrigins": [ "http://localhost:5173" ]
+                }</pre>
+          </code>
+        <p style="font-weight: bold">Bước 2: Khai báo trong Program.cs </p>
+          <code><pre>
+             var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>();
+              builder.Services.AddCors(options =>
+              {
+                  options.AddPolicy("AllowSpecificOrigins", policy =>
+                  {
+                      policy.WithOrigins(allowedOrigins ?? Array.Empty<string>())
+                            .AllowAnyHeader()
+                            .AllowAnyMethod()
+                            .AllowCredentials();
+                  });
+              });
+              //Sau dòng khai báo app
+              app.UseCors("AllowSpecificOrigins");
+          </pre></code>
+        </div>
+      </section>
+      <section>
+        <h2>4. Các Config trong ApplicationCore</h2>
+        <div class="content">
+          <p style="font-weight: bold;"> Bước 1: Add AutoMapper Package</p>
+          <code>
+            <pre>dotnet add package AutoMapper
+dotnet add package AutoMapper.Extensions.Microsoft.DependencyInjection </pre>
+          </code>
+          <p style="font-weight: bold;">Bước 2: Khai báo Mapper</p>
+          <code><pre>
+            //1. Khai báo cơ bản Map từ User sang UserDTO (folder Helper)
+              public class UserProfile : Profile
+              {
+                  public UserProfile()
+                  {
+                      CreateMap<User, UserDTO>().ForMember(dest => dest.RoleName, opt => opt.MapFrom(src => src.Role.RoleName));
+                  }
+              }
+            //2. Khai báo trong Program.cs
+            builder.Services.AddAutoMapper(typeof(UserProfile).Assembly);
+          </pre></code>
+          <p style="font-weight: bold;">Bước 3: Sử dụng DI để dễ dàng sử dụng AutoMapper</p>
+          <code><pre>
+            //Khai báo interface:
+            namespace ApplicationCore.Interfaces
+            {
+                public interface IAutoMapper
+                {
+                    T Map<T>(Object source);
+                }
+            } 
+            //override method  (Folder Services)
+             public class MapperService : IAutoMapper
+              {
+                  private readonly IMapper _mapper;
+                  public MapperService(IMapper mapper)
+                  {
+                      _mapper = mapper;
+                  }
+                  public T Map<T>(object source) => _mapper.Map<T>(source);
+                
+              }
+              //khái báo DI trong Program.css để sử dụng
+          </pre></code>
+        </div>
+      </section>
+      <section>
+        <h2>5. SetUp catch Exceptions in Middleware</h2>
+        <div class="content">
+          <p style="font-weight: bold;">Bước 1: Khai báo cơ bản Exception</p>
+          <code><pre>
+            namespace ApplicationCore.Exceptions
+            {
+                public class DuplicatePhoneException : Exception
+                {
+                    public DuplicatePhoneException(string phone) : base($"Số điện thoại {phone} đã được đăng ký!")
+                    {
+                        
+                    }
+                }
+            }
+          </pre></code>
+          <p style="font-weight: bold;">Bước 2: Config Middleware in PublicAPI Layer</p>
+          <code><pre>
+namespace PublicAPI.Middleware
+{
+    public class ExceptionMiddleware
+    {
+        private readonly RequestDelegate _next;
+        private readonly ILogger<ExceptionMiddleware> _logger;
+        public ExceptionMiddleware(RequestDelegate next, ILogger<ExceptionMiddleware> logger)
+        {
+            _next = next;
+            _logger = logger;
+        }
+        public async Task InvokeAsync(HttpContext context)
+        {
+            try
+            {
+                await _next(context);
+            }
+            catch (PasswordNotMatchException ex)
+            {
+                _logger.LogWarning(ex.Message);
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                await context.Response.WriteAsJsonAsync(APIResponse<string>.FailResponse(ex.Message));
+            }
+            catch (DuplicatePhoneException ex)
+            {
+                _logger.LogWarning(ex.Message);
+                context.Response.StatusCode = StatusCodes.Status409Conflict;
+                await context.Response.WriteAsJsonAsync(APIResponse<string>.FailResponse(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unhandled exception");
+                context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+                await context.Response.WriteAsJsonAsync(APIResponse<string>.FailResponse("Có lỗi xảy ra trên hệ thống"));
+            }
+        }
+    }
+}
+          </pre></code>
+          <p style="font-weight: bold;">Bước 3: Khai báo Middleware trong Program.cs</p>
+          <code><pre>
+            //sau dòng khai báo app
+              app.UseMiddleware<PublicAPI.Middleware.ExceptionMiddleware>();
+          </pre></code>
+        </div>
+      </section>
     </main>
 
-    <script src="../script.js"></script>
+    <script src="../script.js"></script>  
   </body>
 </html>
