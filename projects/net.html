@@ -242,6 +242,25 @@ namespace PublicAPI.Middleware
                     public int UserId { get; set; } 
                     public User User { get; set; }
                 }
+                // Khai báo catch exceptions này để bắt những lỗi DataAnotation theo thứ tự:
+                using Microsoft.AspNetCore.Mvc;
+
+                    builder.Services.Configure<ApiBehaviorOptions>(options =>
+                    {
+                        options.InvalidModelStateResponseFactory = context =>
+                        {
+                            // Lấy lỗi đầu tiên (hoặc bạn có thể join nhiều lỗi lại)
+                            var firstError = context.ModelState
+                                .Values
+                                .SelectMany(v => v.Errors)
+                                .FirstOrDefault()?.ErrorMessage;
+
+                            var response = ApiResponse<string>.Fail(firstError ?? "Validation failed");
+
+                            return new BadRequestObjectResult(response);
+                        };
+                    });
+
           </pre></code>
           <p style="font-weight: bold;">Bước 2: Declare in appsettings.json</p>
           <code><pre>
